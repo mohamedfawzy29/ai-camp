@@ -33,10 +33,11 @@ const INITIAL = {
   useCases: [],
   otherUseCase: '',
   level: '',
+  _hp: '',
 }
 
 // Optional: set VITE_SUBMIT_URL in .env (e.g. a Google Apps Script / Formspree endpoint)
-const SUBMIT_URL = import.meta.env.VITE_SUBMIT_URL
+const SUBMIT_URL = import.meta.env.VITE_SUBMIT_URL || '/api/register'
 
 function validate(data) {
   const errors = {}
@@ -89,6 +90,13 @@ export default function App() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+
+    // Honeypot spam check: if filled by a bot, silently pretend success
+    if (form._hp) {
+      setState('done')
+      return
+    }
+
     const found = validate(form)
     setErrors(found)
     if (Object.keys(found).length) {
@@ -102,21 +110,26 @@ export default function App() {
       submittedAt: new Date().toISOString(),
     }
     delete payload.otherUseCase
+    delete payload._hp
 
     setState('sending')
     try {
       if (SUBMIT_URL) {
-        await fetch(SUBMIT_URL, {
+        const res = await fetch(SUBMIT_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify(payload),
         })
+        if (!res.ok && res.status !== 0) {
+          throw new Error(`Server returned ${res.status}`)
+        }
       } else {
         console.log('Form submission:', payload)
         await new Promise((r) => setTimeout(r, 800))
       }
       setState('done')
-    } catch {
+    } catch (err) {
+      console.error('Submission error:', err)
       setState('error')
     }
   }
@@ -172,12 +185,26 @@ export default function App() {
             </div>
           ) : (
             <form onSubmit={handleSubmit} noValidate className="space-y-7">
+              {/* Honeypot field for spam bots */}
+              <div className="sr-only" aria-hidden="true">
+                <input
+                  type="text"
+                  name="_hp"
+                  tabIndex={-1}
+                  autoComplete="off"
+                  value={form._hp}
+                  onChange={(e) => set('_hp', e.target.value)}
+                />
+              </div>
+
               <SectionTitle step="1" title="بياناتك الشخصية" />
 
               <div data-field="name">
                 <Field label="الاسم" required error={errors.name} htmlFor="name">
                   <input
                     id="name"
+                    name="name"
+                    autoComplete="name"
                     className={inputClass(errors.name)}
                     placeholder="الاسم بالكامل"
                     value={form.name}
@@ -191,7 +218,9 @@ export default function App() {
                   <Field label="الإيميل" required error={errors.email} htmlFor="email">
                     <input
                       id="email"
+                      name="email"
                       type="email"
+                      autoComplete="email"
                       dir="ltr"
                       className={`${inputClass(errors.email)} text-right`}
                       placeholder="name@example.com"
@@ -205,7 +234,10 @@ export default function App() {
                     <div className="relative">
                       <input
                         id="phone"
+                        name="phone"
                         type="tel"
+                        inputMode="tel"
+                        autoComplete="tel"
                         dir="ltr"
                         className={`${inputClass(errors.phone)} pl-11 text-right`}
                         placeholder="01xxxxxxxxx"
@@ -243,6 +275,7 @@ export default function App() {
                   <Field label="مؤهلك الدراسي" required error={errors.qualification} htmlFor="qualification">
                     <input
                       id="qualification"
+                      name="qualification"
                       className={inputClass(errors.qualification)}
                       placeholder="مثال: بكالوريوس تجارة"
                       value={form.qualification}
@@ -254,6 +287,7 @@ export default function App() {
                   <Field label="التخصص / اسم الـ Track" required error={errors.track} htmlFor="track">
                     <input
                       id="track"
+                      name="track"
                       className={inputClass(errors.track)}
                       placeholder="مثال: Front-End، محاسبة، Marketing"
                       value={form.track}
@@ -335,9 +369,9 @@ export default function App() {
               </div>
 
               {state === 'error' && (
-                <p className="rounded-xl bg-red-50 p-3 text-center text-sm font-medium text-red-700">
-                  حصلت مشكلة في الإرسال، جرّب تاني.
-                </p>
+                <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-center text-sm font-medium text-red-700">
+                  <p>حصلت مشكلة أثناء إرسال البيانات. من فضلك تأكد من الاتصال وجرّب تاني.</p>
+                </div>
               )}
 
               <button
